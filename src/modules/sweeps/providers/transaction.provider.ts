@@ -105,11 +105,8 @@ export class TransactionProvider {
 
       this.logger.log(`Sweep transaction successful: ${result.hash}`);
 
-      const ledger = Number(result.ledger);
+      const ledger = this.toLedgerNumber(result.ledger);
 
-      if (Number.isNaN(ledger)) {
-        throw new Error(`Invalid ledger value: ${result.ledger}`);
-      }
       return {
         hash: result.hash,
         ledger: ledger,
@@ -178,7 +175,7 @@ export class TransactionProvider {
 
       return {
         hash: result.hash,
-        ledger: result.ledger,
+        ledger: this.toLedgerNumber(result.ledger),
         successful: result.successful,
         timestamp: new Date(),
         ...this.describeFeeBump(result),
@@ -193,6 +190,25 @@ export class TransactionProvider {
 
       throw error; // Re-throw so caller can handle
     }
+  }
+
+  /**
+   * Coerce Horizon's `ledger` to a number (#647).
+   *
+   * transaction-result.interface.ts documents that the wire value can be a
+   * string even though the SDK types it as `number`. Both submission paths go
+   * through this helper so they cannot drift apart again - mergeAccount
+   * previously returned `result.ledger` unconverted, so a string ledger would
+   * reach consumers typed as a number.
+   */
+  private toLedgerNumber(rawLedger: number | string): number {
+    const ledger = Number(rawLedger);
+
+    if (Number.isNaN(ledger)) {
+      throw new Error(`Invalid ledger value: ${rawLedger}`);
+    }
+
+    return ledger;
   }
 
   /**

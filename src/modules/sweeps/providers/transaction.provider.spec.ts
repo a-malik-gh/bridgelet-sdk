@@ -1819,4 +1819,67 @@ describe('TransactionProvider', () => {
       expect(result.innerTransactionHash).toBe('merge-hash-inner');
     });
   });
+  /**
+   * #647: the account-merge path must honour the same Horizon ledger contract
+   * as the payment path. It previously returned result.ledger unconverted.
+   */
+  describe('mergeAccount - ledger coercion', () => {
+    const mergeParams = {
+      ephemeralSecret: 'S_VALID_SECRET',
+      destinationAddress:
+        'GD5J6HLF5666X4AZLTFTXLY2CQZBS2LBJBIMYV3SYGQ5OAQY5QO4XRNM',
+    };
+
+    beforeEach(() => {
+      mockLoadAccount.mockResolvedValue({
+        id: 'acc-123',
+        sequence: '1',
+        balances: [],
+      });
+    });
+
+    it('should coerce a string ledger to a number', async () => {
+      // Horizon can return ledger as a string even though the SDK types it as
+      // a number - see transaction-result.interface.ts.
+      mockSubmitTransaction.mockResolvedValue({
+        hash: 'merge-hash',
+        ledger: '104',
+        successful: true,
+      });
+
+      const result = await provider.mergeAccount(mergeParams);
+
+      expect(result.ledger).toBe(104);
+      expect(typeof result.ledger).toBe('number');
+    });
+
+    it('should reject a non-numeric ledger instead of returning NaN', async () => {
+      mockSubmitTransaction.mockResolvedValue({
+        hash: 'merge-hash',
+        ledger: 'not-a-ledger',
+        successful: true,
+      });
+
+      await expect(provider.mergeAccount(mergeParams)).rejects.toThrow(
+        'Invalid ledger value: not-a-ledger',
+      );
+    });
+
+    it('should match the payment path for the same ledger value', async () => {
+      mockSubmitTransaction.mockResolvedValue({
+        hash: 'hash',
+        ledger: '105',
+        successful: true,
+      });
+
+      const merged = await provider.mergeAccount(mergeParams);
+      const paid = await provider.executeSweepTransaction({
+        ...mergeParams,
+        asset: 'native',
+        amount: '100',
+      });
+
+      expect(merged.ledger).toBe(paid.ledger);
+    });
+  });
 });
