@@ -425,12 +425,16 @@ describe('ContractProvider', () => {
       expect(result.timestamp).toBeInstanceOf(Date);
     });
 
-    it('should create RPC server with correct URL', async () => {
-      await provider.authorizeSweep(validParams);
-
+    it('should create RPC server with correct URL when constructed', async () => {
+      // #650: the connection is built once in the constructor, so it already
+      // exists before any sweep is authorized.
       expect(rpc.Server).toHaveBeenCalledWith(
         mockConfig['stellar.sorobanRpcUrl'],
       );
+      expect(rpc.Server).toHaveBeenCalledTimes(1);
+
+      await provider.authorizeSweep(validParams);
+
       expect(rpc.Server).toHaveBeenCalledTimes(1);
     });
 
@@ -1198,12 +1202,8 @@ describe('ContractProvider', () => {
     it('should execute complete authorization flow in correct order', async () => {
       const callOrder: string[] = [];
 
-      // Track calls using mock implementations
-      (rpc.Server as jest.Mock).mockImplementationOnce(() => {
-        callOrder.push('rpc.Server');
-        return mockRpcServer;
-      });
-
+      // #650: rpc.Server is not part of this order any more - it is built
+      // once in the constructor, before any of these calls.
       (Contract as jest.Mock).mockImplementationOnce(() => {
         callOrder.push('Contract');
         return mockContract;
@@ -1239,7 +1239,6 @@ describe('ContractProvider', () => {
       await provider.authorizeSweep(validParams);
 
       expect(callOrder).toEqual([
-        'rpc.Server',
         'Contract',
         'Address.fromString',
         'getAccount',
@@ -1257,7 +1256,11 @@ describe('ContractProvider', () => {
       expect(mockRpcServer.simulateTransaction).not.toHaveBeenCalled();
     });
 
-    it('should create only one RPC server instance per call', async () => {
+    it('should reuse a single RPC server instance across calls', async () => {
+      // #650: regression guard - building an rpc.Server per sweep added
+      // avoidable latency under load.
+      await provider.authorizeSweep(validParams);
+      await provider.authorizeSweep(validParams);
       await provider.authorizeSweep(validParams);
 
       expect(rpc.Server).toHaveBeenCalledTimes(1);

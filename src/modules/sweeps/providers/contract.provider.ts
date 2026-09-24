@@ -34,6 +34,14 @@ export class ContractProvider {
   private readonly sorobanRpcUrl: string;
   private readonly networkPassphrase: string;
 
+  /**
+   * #650: built once per provider, not once per sweep. This provider is
+   * registered with Nest's default (singleton) scope, so a single connection
+   * is shared process-wide - matching TransactionProvider, which has always
+   * built its Horizon server in the constructor.
+   */
+  private readonly server: rpc.Server;
+
   constructor(private readonly configService: ConfigService) {
     this.contractId = this.configService.getOrThrow<string>(
       'stellar.contracts.ephemeralAccount',
@@ -55,6 +63,8 @@ export class ContractProvider {
     this.networkPassphrase =
       network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
+    this.server = new rpc.Server(this.sorobanRpcUrl);
+
     this.logger.log(
       `Initialized ContractProvider with contract: ${this.contractId}`,
     );
@@ -72,8 +82,8 @@ export class ContractProvider {
     );
 
     try {
-      // Create Soroban RPC server connection
-      const server = new rpc.Server(this.sorobanRpcUrl);
+      // Reuse the shared Soroban RPC connection built in the constructor (#650)
+      const server = this.server;
 
       // Create contract instance
       const contract = new Contract(this.contractId);
