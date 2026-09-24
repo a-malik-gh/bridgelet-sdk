@@ -18,10 +18,19 @@ import type { AuthorizeSweepParams } from '../interfaces/authorize-sweep-params.
 import type { ContractAuthResult } from '../interfaces/contract-auth-result.interface.js';
 import { SweepSignerUtil } from '../../../common/crypto/sweep-signer.util.js';
 
+/**
+ * Reported by {@link ContractProvider.getContractInfo} when the deployed
+ * contract's version is not configured. Preferred over a hardcoded semver,
+ * which silently drifts from the deployed WASM once the contract is
+ * redeployed (#648).
+ */
+export const UNKNOWN_CONTRACT_VERSION = 'unknown';
+
 @Injectable()
 export class ContractProvider {
   private readonly logger = new Logger(ContractProvider.name);
   private readonly contractId: string;
+  private readonly contractVersion: string;
   private readonly sorobanRpcUrl: string;
   private readonly networkPassphrase: string;
 
@@ -32,6 +41,15 @@ export class ContractProvider {
     this.sorobanRpcUrl = this.configService.getOrThrow<string>(
       'stellar.sorobanRpcUrl',
     );
+
+    // #648: sourced from config, not a literal, so the reported version
+    // tracks the contract that is actually deployed. `get` (not
+    // `getOrThrow`) because an unset version is reported as 'unknown'
+    // rather than preventing the service from starting.
+    this.contractVersion =
+      this.configService.get<string>(
+        'stellar.contracts.ephemeralAccountVersion',
+      ) ?? UNKNOWN_CONTRACT_VERSION;
 
     const network = this.configService.getOrThrow<string>('stellar.network');
     this.networkPassphrase =
@@ -146,7 +164,14 @@ export class ContractProvider {
   }
 
   /**
-   * Check contract status and version
+   * Check contract status and version.
+   *
+   * `version` comes from `stellar.contracts.ephemeralAccountVersion`
+   * (`EPHEMERAL_ACCOUNT_CONTRACT_VERSION`) and is
+   * {@link UNKNOWN_CONTRACT_VERSION} when that is not configured. It is
+   * deliberately not a hardcoded literal: this value is safe to surface on
+   * an admin/health endpoint, so it must never claim a version the deployed
+   * contract does not have (#648).
    */
   public getContractInfo(): {
     contractId: string;
@@ -154,7 +179,7 @@ export class ContractProvider {
   } {
     return {
       contractId: this.contractId,
-      version: '0.1.0',
+      version: this.contractVersion,
     };
   }
   /**
